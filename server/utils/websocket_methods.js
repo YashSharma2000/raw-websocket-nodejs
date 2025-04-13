@@ -1,4 +1,5 @@
 const crypto = require("crypto");
+const WebSocketReceiver = require("./websocket_receiver");
 const {
   UPGRADE_HEADER_VALUE,
   CONNECTION_HEADER_VALUE,
@@ -58,7 +59,48 @@ const upgradeConectionToWebsocket = (req, socket, head) => {
     "",
   ].join("\r\n");
   socket.write(headers);
+  // start websocket communication
+  startWebsocketCommunication(socket);
 };
+
+function startWebsocketCommunication(socket) {
+  console.log("Websocket connection has been established");
+  // initiate the custom WebsocketReceiver instance
+  const receiver = new WebSocketReceiver(socket);
+  // We need to bind/register an event handler (callback function) to the 'data' event on socket object for handling the extraction of data and without this event handler, the data will be lost.
+  // This event is emitted whenever server receives data from the client over a websocket connection.
+
+  /**
+   * VERY IMPORTANT NOTE: Understanding Websocket Frame Fragmentation
+   * ---------------------------------------------------------------
+   *
+   * Websocket Protocol vs Network Layer Behavior:
+   * - Websocket protocol sends data in complete frames
+   * - Network layer protocols (like TCP) split data into packets
+   * - This means we may receive incomplete frames in a chunk if the frame size is large
+   *
+   * Example Scenario:
+   * 1. Let's say that websocket created 2 frames to send a complete message
+   * 2. But, TCP splits the first frame into 2 packets due to large size
+   * 3. Second frame remains unsplit due to small size
+   * 4. Result: First and second chunks contain fragmented frames, while the third chunk is a complete frame
+   * 5. The 'data' event will trigger 3 times in total
+   *
+   * Implementation Consideration:
+   * When parsing payload from a frame, always verify whether the complete frame has been received.
+   * If incomplete, wait for additional chunks to complete the frame.
+   *
+   * Terminology Note:
+   * In the 'data' event listener below, we refer to received data as "chunk" rather than "frame".
+   * Depending on frame size, we may receive either:
+   *   - FULL FRAME: Complete websocket frame in a single chunk
+   *   - FRAGMENTED FRAME: Partial websocket frame requiring multiple chunks
+   */
+
+  socket.on("data", (chunk) => {
+    receiver.processChunk(chunk);
+  });
+}
 
 module.exports = {
   checkIfRequestDataRFC6455Compliant,
